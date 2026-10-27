@@ -1,0 +1,20 @@
+#!/bin/bash
+# Entrypoint of the GitHub Action defined in /action.yml.
+# Inputs arrive as environment variables set by `runs.env` in action.yml.
+set -e
+
+PREFIX="${CUBOS_CLUSTER:-CLUSTER}"
+
+# Inputs are optional: when omitted, <PREFIX>_K8S_* must already be in the environment.
+[ -n "${CUBOS_SERVER_NAME}" ] && export "${PREFIX}_K8S_SERVER_NAME=${CUBOS_SERVER_NAME}"
+[ -n "${CUBOS_SERVER_URL}" ] && export "${PREFIX}_K8S_SERVER_URL=${CUBOS_SERVER_URL}"
+[ -n "${CUBOS_SERVER_CA}" ] && export "${PREFIX}_K8S_SERVER_CA=${CUBOS_SERVER_CA}"
+[ -n "${CUBOS_TOKEN}" ] && export "${PREFIX}_K8S_TOKEN=${CUBOS_TOKEN}"
+
+cd "${CUBOS_WORKING_DIRECTORY:-.}"
+
+cluster_from_env "${PREFIX}"
+
+if [ "${CUBOS_DEPLOY:-true}" = "true" ]; then
+  deploy
+fi

@@ -1,13 +1,29 @@
-name: Docker Image
+name: Docker Images
 
 on:
   release:
     types: [published]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   docker:
-    name: Publish to Docker Hub 🐳
+    name: Publish ${{ matrix.name }} image to GHCR 🐳
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: full
+            dockerfile: Dockerfile
+            image: ghcr.io/cubos-devops/cli
+          - name: k8s
+            dockerfile: images/k8s/Dockerfile
+            image: ghcr.io/cubos-devops/cli/k8s
 
     steps:
       - name: Checkout 🛎️
@@ -17,9 +33,9 @@ jobs:
         uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ github.repository }}
+          images: ${{ matrix.image }}
           flavor: |
-            latest=${{ !github.event.release.prerelease }}
+            latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
           tags: |
             type=semver,pattern={{major}}.{{minor}},enable=${{ !github.event.release.prerelease }}
             type=semver,pattern={{major}},enable=${{ !github.event.release.prerelease }}
@@ -32,18 +48,105 @@ jobs:
       - name: Set up Docker Buildx 📦
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub 🔑
+      - name: Login to GitHub Container Registry 🔑
+        if: github.event_name == 'release'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push 🚀
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
-          platforms: linux/amd64,linux/arm64/v8
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'release' }}
+          platforms: ${{ github.event_name == 'release' && 'linux/amd64,linux/arm64/v8' || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  # Best-effort mirror of the full image to Docker Hub, kept for backward compatibility.
+  # It never blocks the GHCR publication: it is skipped when the credentials are not set
+  # and `continue-on-error` keeps the run green when they are invalid.
+  dockerhub:
+    name: Mirror full image to Docker Hub 🐳
+    if: github.event_name == 'release'
+    needs: docker
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      HAS_DOCKERHUB_CREDENTIALS: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_PASSWORD != '' }}
+
+    steps:
+      - name: Check Docker Hub credentials 🔍
+        if: env.HAS_DOCKERHUB_CREDENTIALS != 'true'
+        run: echo "::warning title=Docker Hub mirror skipped::DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD are not set"
+
+      - name: Docker Metadata 🧾
+        if: env.HAS_DOCKERHUB_CREDENTIALS == 'true'
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: docker.io/cubos/cli
+          flavor: |
+            latest=${{ !github.event.release.prerelease }}
+          tags: |
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !github.event.release.prerelease }}
+            type=semver,pattern={{major}},enable=${{ !github.event.release.prerelease }}
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      - name: Set up Docker Buildx 📦
+        if: env.HAS_DOCKERHUB_CREDENTIALS == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry 🔑
+        if: env.HAS_DOCKERHUB_CREDENTIALS == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub 🔑
+        if: env.HAS_DOCKERHUB_CREDENTIALS == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Copy image from GHCR to Docker Hub 🚀
+        if: env.HAS_DOCKERHUB_CREDENTIALS == 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          args=()
+          while read -r tag; do
+            args+=(-t "${tag}")
+          done < <(jq -r '.tags[]' <<< "${DOCKER_METADATA_OUTPUT_JSON}")
+
+          docker buildx imagetools create "${args[@]}" "ghcr.io/cubos-devops/cli:${VERSION}"
+
+  major-tag:
+    name: Update major tag 🏷️
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Move vMAJOR to the released tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          major="${TAG%%.*}"
+          git tag -f "${major}" "${TAG}"
+          git push -f origin "refs/tags/${major}"

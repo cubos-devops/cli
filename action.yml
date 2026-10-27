@@ -1,0 +1,50 @@
+name: Cubos Kubernetes Deploy
+description: Configure kubectl from a cluster's credentials and deploy YAML and kube-templates files to a Kubernetes cluster.
+author: Cubos Devops
+
+inputs:
+  cluster:
+    description: >-
+      Prefix of the environment variables that hold the cluster credentials
+      (<cluster>_K8S_SERVER_URL, <cluster>_K8S_SERVER_CA, <cluster>_K8S_TOKEN and,
+      optionally, <cluster>_K8S_SERVER_NAME). Same argument as `cluster_from_env`.
+    required: false
+    default: CLUSTER
+  server-url:
+    description: Kubernetes API server URL. Alternative to the <cluster>_K8S_SERVER_URL environment variable.
+    required: false
+  server-ca:
+    description: Base64 certificate authority data of the API server. Alternative to the <cluster>_K8S_SERVER_CA environment variable.
+    required: false
+  token:
+    description: Service account token used to authenticate. Alternative to the <cluster>_K8S_TOKEN environment variable.
+    required: false
+  server-name:
+    description: Name given to the cluster in the kubeconfig. Alternative to the <cluster>_K8S_SERVER_NAME environment variable.
+    required: false
+  working-directory:
+    description: Directory that contains the `deploy/` folder, relative to the workspace.
+    required: false
+    default: .
+  deploy:
+    description: Run `deploy` after configuring the cluster. Set to `false` to only configure kubectl.
+    required: false
+    default: "true"
+
+runs:
+  using: docker
+  # Major tag of the image published together with each release of this action.
+  image: docker://ghcr.io/cubos-devops/cli/k8s:1
+  entrypoint: /bin/github_action
+  env:
+    CUBOS_CLUSTER: ${{ inputs.cluster }}
+    CUBOS_SERVER_URL: ${{ inputs.server-url }}
+    CUBOS_SERVER_CA: ${{ inputs.server-ca }}
+    CUBOS_TOKEN: ${{ inputs.token }}
+    CUBOS_SERVER_NAME: ${{ inputs.server-name }}
+    CUBOS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+    CUBOS_DEPLOY: ${{ inputs.deploy }}
+
+branding:
+  icon: upload-cloud
+  color: blue
