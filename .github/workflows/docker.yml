@@ -1,13 +1,34 @@
-name: Docker Image
+name: Docker Images
 
 on:
   release:
     types: [published]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   docker:
-    name: Publish to Docker Hub 🐳
+    name: Publish ${{ matrix.name }} image 🐳
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: full
+            dockerfile: Dockerfile
+            dockerhub: true
+            images: |
+              ghcr.io/cubos-devops/cli
+              docker.io/cubos/cli
+          - name: k8s
+            dockerfile: images/k8s/Dockerfile
+            dockerhub: false
+            images: |
+              ghcr.io/cubos-devops/cli/k8s
 
     steps:
       - name: Checkout 🛎️
@@ -17,9 +38,9 @@ jobs:
         uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ github.repository }}
+          images: ${{ matrix.images }}
           flavor: |
-            latest=${{ !github.event.release.prerelease }}
+            latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
           tags: |
             type=semver,pattern={{major}}.{{minor}},enable=${{ !github.event.release.prerelease }}
             type=semver,pattern={{major}},enable=${{ !github.event.release.prerelease }}
@@ -32,7 +53,16 @@ jobs:
       - name: Set up Docker Buildx 📦
         uses: docker/setup-buildx-action@v3
 
+      - name: Login to GitHub Container Registry 🔑
+        if: github.event_name == 'release'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Login to Docker Hub 🔑
+        if: github.event_name == 'release' && matrix.dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -42,8 +72,31 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
-          platforms: linux/amd64,linux/arm64/v8
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'release' }}
+          platforms: ${{ github.event_name == 'release' && 'linux/amd64,linux/arm64/v8' || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  major-tag:
+    name: Update major tag 🏷️
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Move vMAJOR to the released tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          major="${TAG%%.*}"
+          git tag -f "${major}" "${TAG}"
+          git push -f origin "refs/tags/${major}"
