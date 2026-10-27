@@ -10,64 +10,21 @@ permissions:
   packages: write
 
 jobs:
-  docker:
-    name: Publish ${{ matrix.name }} image to GHCR 🐳
-    runs-on: ubuntu-latest
+  full:
+    name: full 🐳
+    uses: ./.github/workflows/image.yml
+    with:
+      name: full
+      dockerfile: Dockerfile
+      image: ghcr.io/cubos-devops/cli
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: full
-            dockerfile: Dockerfile
-            image: ghcr.io/cubos-devops/cli
-          - name: k8s
-            dockerfile: images/k8s/Dockerfile
-            image: ghcr.io/cubos-devops/cli/k8s
-
-    steps:
-      - name: Checkout 🛎️
-        uses: actions/checkout@v4
-
-      - name: Docker Metadata 🧾
-        uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ matrix.image }}
-          flavor: |
-            latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
-          tags: |
-            type=semver,pattern={{major}}.{{minor}},enable=${{ !github.event.release.prerelease }}
-            type=semver,pattern={{major}},enable=${{ !github.event.release.prerelease }}
-            type=semver,pattern={{version}}
-            type=sha,format=short
-
-      - name: Set up QEMU 🦆
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx 📦
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry 🔑
-        if: github.event_name == 'release'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and Push 🚀
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name == 'release' }}
-          platforms: ${{ github.event_name == 'release' && 'linux/amd64,linux/arm64/v8' || 'linux/amd64' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: true
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+  k8s:
+    name: k8s 🐳
+    uses: ./.github/workflows/image.yml
+    with:
+      name: k8s
+      dockerfile: images/k8s/Dockerfile
+      image: ghcr.io/cubos-devops/cli/k8s
 
   # Best-effort mirror of the full image to Docker Hub, kept for backward compatibility.
   # It never blocks the GHCR publication: it is skipped when the credentials are not set
@@ -75,7 +32,7 @@ jobs:
   dockerhub:
     name: Mirror full image to Docker Hub 🐳
     if: github.event_name == 'release'
-    needs: docker
+    needs: full
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
@@ -131,10 +88,11 @@ jobs:
 
           docker buildx imagetools create "${args[@]}" "ghcr.io/cubos-devops/cli:${VERSION}"
 
+  # The GitHub Action points to the k8s image, so only it gates the vMAJOR tag.
   major-tag:
     name: Update major tag 🏷️
     if: github.event_name == 'release' && !github.event.release.prerelease
-    needs: docker
+    needs: k8s
     runs-on: ubuntu-latest
     permissions:
       contents: write
