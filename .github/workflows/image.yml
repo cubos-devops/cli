@@ -61,7 +61,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push by digest 🚀
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         id: build
         with:
           context: .
