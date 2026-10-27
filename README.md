@@ -133,6 +133,8 @@ jobs:
 
 Publishing a GitHub release builds and pushes every image, and moves the `vMAJOR` tag (e.g. `v1`) to the new release so `cubos-devops/cli@v1` follows it. The action pulls `ghcr.io/cubos-devops/cli/k8s:<major>`, so keep the action's major version and the image's in step.
 
+The Docker Hub mirror (`docker.io/cubos/cli`) is published after GHCR, by copying the already published full image, and is best-effort: it is skipped when the `DOCKERHUB_USERNAME` and `DOCKERHUB_PASSWORD` secrets are not set, and a failure there never blocks or fails the GHCR publication.
+
 Because `action.yml` is at the repository root, GitHub detects the action and offers **Publish this Action to the GitHub Marketplace** when drafting a release.
 
 ## Contributing
