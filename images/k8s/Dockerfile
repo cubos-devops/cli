@@ -1,6 +1,6 @@
 # Slim image focused on deploying to Kubernetes clusters (cluster_from_env + deploy).
 # Build context must be the repository root: docker build -f images/k8s/Dockerfile .
-FROM node:22-alpine3.22
+FROM node:26-alpine3.22
 
 # Keep the npm package versions in sync with the root Dockerfile (full image).
 RUN npm i -g ejs-cli ts-node@10.9.2 typescript@5.9.3 @cubos/kube-templates@1.1.1 @types/node@~24 && npm cache clean --force
